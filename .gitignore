@@ -1,0 +1,4 @@
+.env
+.traq-tui/
+/traq-tui
+coverage.out
