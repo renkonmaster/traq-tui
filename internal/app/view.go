@@ -168,7 +168,11 @@ func (m Model) messagePane(width, height int) string {
 	}
 
 	lines := []string{titleStyle.Render(ansi.Truncate("#"+channel, width, "…")), ""}
-	available := max(height-len(lines), 0)
+	composerHeight := 0
+	if m.focus == focusComposer || m.posting {
+		composerHeight = 5
+	}
+	available := max(height-len(lines)-composerHeight, 0)
 	messageLines, _ := m.visibleMessageLines(width, available)
 	if len(messageLines) == 0 {
 		switch {
@@ -179,7 +183,31 @@ func (m Model) messagePane(width, height int) string {
 		}
 	}
 	lines = append(lines, messageLines...)
+	if composerHeight > 0 {
+		lines = append(lines, m.composerLines(width)...)
+	}
 	return strings.Join(lines, "\n")
+}
+
+func (m Model) composerLines(width int) []string {
+	state := "Compose message · ctrl+s send · esc close"
+	if m.posting {
+		state = "Posting message…"
+	}
+	lines := []string{
+		mutedStyle.Render(strings.Repeat("─", max(width, 0))),
+		titleStyle.Render(ansi.Truncate(state, width, "…")),
+	}
+	for line := range strings.SplitSeq(m.composer.View(), "\n") {
+		lines = append(lines, ansi.Truncate(line, width, "…"))
+	}
+	for len(lines) < 5 {
+		lines = append(lines, "")
+	}
+	if len(lines) > 5 {
+		lines = lines[:5]
+	}
+	return lines
 }
 
 func (m Model) visibleMessageLines(width, height int) ([]string, int) {
@@ -286,6 +314,8 @@ func (m Model) keyHints() string {
 		return "type to filter · enter select · esc cancel"
 	case focusMessages:
 		return "j/k scroll · g/G oldest/latest · tab channels · r refresh · ? help · q quit"
+	case focusComposer:
+		return "ctrl+s send · enter newline · esc keep draft · ctrl+c quit"
 	case focusHelp:
 		return "? close help · q quit"
 	default:

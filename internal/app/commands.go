@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -25,13 +26,32 @@ type usersFailedMsg struct {
 }
 
 type messagesLoadedMsg struct {
-	channelID string
-	messages  []traqapi.Message
+	channelID  string
+	generation uint64
+	messages   []traqapi.Message
 }
 
 type messagesFailedMsg struct {
-	channelID string
-	err       error
+	channelID  string
+	generation uint64
+	err        error
+}
+
+type postSucceededMsg struct {
+	channelID  string
+	generation uint64
+	message    traqapi.Message
+}
+
+type postFailedMsg struct {
+	channelID  string
+	generation uint64
+	err        error
+}
+
+type pollTickMsg struct {
+	channelID  string
+	generation uint64
 }
 
 func loadChannels(service traqapi.Service) tea.Cmd {
@@ -54,12 +74,57 @@ func loadUsers(service traqapi.Service) tea.Cmd {
 	}
 }
 
-func loadMessages(service traqapi.Service, channelID string) tea.Cmd {
+func loadMessages(service traqapi.Service, channelID string, generation uint64) tea.Cmd {
 	return func() tea.Msg {
 		messages, err := service.Messages(context.Background(), channelID, 50)
 		if err != nil {
-			return messagesFailedMsg{channelID: channelID, err: err}
+			return messagesFailedMsg{
+				channelID:  channelID,
+				generation: generation,
+				err:        err,
+			}
 		}
-		return messagesLoadedMsg{channelID: channelID, messages: messages}
+		return messagesLoadedMsg{
+			channelID:  channelID,
+			generation: generation,
+			messages:   messages,
+		}
 	}
+}
+
+func postMessage(
+	service traqapi.Service,
+	channelID string,
+	generation uint64,
+	content string,
+) tea.Cmd {
+	return func() tea.Msg {
+		message, err := service.Post(context.Background(), channelID, content)
+		if err != nil {
+			return postFailedMsg{
+				channelID:  channelID,
+				generation: generation,
+				err:        err,
+			}
+		}
+		return postSucceededMsg{
+			channelID:  channelID,
+			generation: generation,
+			message:    message,
+		}
+	}
+}
+
+func schedulePoll(
+	tick tickFunc,
+	interval time.Duration,
+	channelID string,
+	generation uint64,
+) tea.Cmd {
+	if tick == nil || interval <= 0 || channelID == "" {
+		return nil
+	}
+	return tick(interval, func(time.Time) tea.Msg {
+		return pollTickMsg{channelID: channelID, generation: generation}
+	})
 }

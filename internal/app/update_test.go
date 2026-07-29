@@ -97,6 +97,10 @@ func specialKey(code rune) tea.KeyPressMsg {
 	return tea.KeyPressMsg{Code: code}
 }
 
+func controlKey(code rune) tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: code, Mod: tea.ModCtrl}
+}
+
 func updateModel(t *testing.T, model Model, message tea.Msg) (Model, tea.Cmd) {
 	t.Helper()
 	next, command := model.Update(message)
@@ -200,7 +204,14 @@ func TestEnterSelectsChannelAndLoadsMessages(t *testing.T) {
 	if command == nil {
 		t.Fatal("channel selection did not request messages")
 	}
-	model, _ = updateModel(t, model, command())
+	message := command()
+	if batch, ok := message.(tea.BatchMsg); ok {
+		if len(batch) == 0 {
+			t.Fatal("channel selection returned an empty command batch")
+		}
+		message = batch[0]()
+	}
+	model, _ = updateModel(t, model, message)
 
 	if len(model.messages) != 1 || model.messages[0].ID != "message-1" {
 		t.Fatalf("messages = %#v", model.messages)

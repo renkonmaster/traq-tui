@@ -15,6 +15,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = message.Width
 		m.height = message.Height
+		m.configureComposer()
 		m.messageScroll = min(m.messageScroll, m.maxMessageScroll())
 		return m, nil
 
@@ -47,7 +48,8 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case messagesLoadedMsg:
-		if message.channelID != m.selectedChannelID {
+		if message.channelID != m.selectedChannelID ||
+			message.generation != m.pollGeneration {
 			return m, nil
 		}
 		m.loadingMessages = false
@@ -57,13 +59,50 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case messagesFailedMsg:
-		if message.channelID != m.selectedChannelID {
+		if message.channelID != m.selectedChannelID ||
+			message.generation != m.pollGeneration {
 			return m, nil
 		}
 		m.loadingMessages = false
 		m.hasError = true
 		m.status = "Could not load messages: " + message.err.Error()
 		return m, nil
+
+	case postSucceededMsg:
+		m.posting = false
+		if message.channelID != m.selectedChannelID ||
+			message.generation != m.pollGeneration {
+			return m, nil
+		}
+		m.composer.Reset()
+		m.composer.Blur()
+		m.focus = focusMessages
+		m.messageScroll = 0
+		m.loadingMessages = true
+		m.hasError = false
+		m.status = "Posted · refreshing messages…"
+		return m, loadMessages(m.service, message.channelID, message.generation)
+
+	case postFailedMsg:
+		m.posting = false
+		if message.channelID != m.selectedChannelID ||
+			message.generation != m.pollGeneration {
+			return m, nil
+		}
+		m.hasError = true
+		m.status = "Could not post message: " + message.err.Error()
+		return m, nil
+
+	case pollTickMsg:
+		if message.channelID != m.selectedChannelID ||
+			message.generation != m.pollGeneration {
+			return m, nil
+		}
+		m.loadingMessages = true
+		return m, tea.Batch(
+			loadMessages(m.service, message.channelID, message.generation),
+			schedulePoll(m.tick, m.pollInterval, message.channelID, message.generation),
+		)
 
 	case tea.KeyPressMsg:
 		return m.updateKey(message)
@@ -72,6 +111,14 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if key.String() == "ctrl+c" {
+		return m, tea.Quit
+	}
+
+	if m.focus == focusComposer {
+		return m.updateComposerKey(key)
+	}
+
 	if m.focus == focusFilter {
 		switch key.String() {
 		case "esc":
@@ -92,8 +139,17 @@ func (m Model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch key.String() {
-	case "ctrl+c", "q":
+	case "q":
 		return m, tea.Quit
+	case "i":
+		if m.selectedChannelID == "" {
+			m.hasError = true
+			m.status = "Select a channel before composing a message"
+			return m, nil
+		}
+		m.focus = focusComposer
+		m.hasError = false
+		return m, m.composer.Focus()
 	case "/":
 		m.focus = focusFilter
 		return m, m.filter.Focus()
@@ -118,7 +174,7 @@ func (m Model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.loadingMessages = true
 		m.hasError = false
 		m.status = "Refreshing messages…"
-		return m, loadMessages(m.service, m.selectedChannelID)
+		return m, loadMessages(m.service, m.selectedChannelID, m.pollGeneration)
 	case "enter":
 		if m.focus == focusChannels {
 			return m.selectHighlightedChannel()
@@ -155,6 +211,52 @@ func (m Model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updateComposerKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch key.String() {
+	case "esc":
+		m.composer.Blur()
+		m.focus = focusMessages
+		return m, nil
+	case "ctrl+s":
+		return m.submitComposer()
+	}
+	if m.posting {
+		return m, nil
+	}
+
+	var command tea.Cmd
+	m.composer, command = m.composer.Update(key)
+	return m, command
+}
+
+func (m Model) submitComposer() (tea.Model, tea.Cmd) {
+	if m.posting {
+		return m, nil
+	}
+	if m.selectedChannelID == "" {
+		m.hasError = true
+		m.status = "Select a channel before posting"
+		return m, nil
+	}
+
+	content := m.composer.Value()
+	if strings.TrimSpace(content) == "" {
+		m.hasError = true
+		m.status = "Message cannot be empty"
+		return m, nil
+	}
+
+	m.posting = true
+	m.hasError = false
+	m.status = "Posting message…"
+	return m, postMessage(
+		m.service,
+		m.selectedChannelID,
+		m.pollGeneration,
+		content,
+	)
+}
+
 func (m Model) selectHighlightedChannel() (tea.Model, tea.Cmd) {
 	if len(m.filteredChannels) == 0 ||
 		m.channelCursor < 0 ||
@@ -162,13 +264,20 @@ func (m Model) selectHighlightedChannel() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	channel := m.filteredChannels[m.channelCursor]
+	m.pollGeneration++
+	if m.pollGeneration == 0 {
+		m.pollGeneration = 1
+	}
 	m.selectedChannelID = channel.ID
 	m.messages = nil
 	m.messageScroll = 0
 	m.loadingMessages = true
 	m.hasError = false
 	m.status = "Loading #" + channel.Path + "…"
-	return m, loadMessages(m.service, channel.ID)
+	return m, tea.Batch(
+		loadMessages(m.service, channel.ID, m.pollGeneration),
+		schedulePoll(m.tick, m.pollInterval, channel.ID, m.pollGeneration),
+	)
 }
 
 func (m Model) messagePageSize() int {
@@ -177,6 +286,16 @@ func (m Model) messagePageSize() int {
 	}
 	_, _, bodyHeight := m.layoutDimensions()
 	return max(bodyHeight-6, 1)
+}
+
+func (m *Model) configureComposer() {
+	width := 52
+	if m.width >= minimumTerminalWidth {
+		_, rightWidth, _ := m.layoutDimensions()
+		width = max(rightWidth-4, 1)
+	}
+	m.composer.SetWidth(width)
+	m.composer.SetHeight(3)
 }
 
 func (m *Model) applyChannelFilter() {
