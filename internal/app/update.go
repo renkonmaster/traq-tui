@@ -15,6 +15,7 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = message.Width
 		m.height = message.Height
+		m.messageScroll = min(m.messageScroll, m.maxMessageScroll())
 		return m, nil
 
 	case channelsLoadedMsg:
@@ -125,10 +126,30 @@ func (m Model) updateKey(key tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "j", "down":
 		if m.focus == focusChannels && m.channelCursor+1 < len(m.filteredChannels) {
 			m.channelCursor++
+		} else if m.focus == focusMessages && m.messageScroll > 0 {
+			m.messageScroll--
 		}
 	case "k", "up":
 		if m.focus == focusChannels && m.channelCursor > 0 {
 			m.channelCursor--
+		} else if m.focus == focusMessages {
+			m.messageScroll = min(m.messageScroll+1, m.maxMessageScroll())
+		}
+	case "pgdown", "ctrl+d":
+		if m.focus == focusMessages {
+			m.messageScroll = max(m.messageScroll-m.messagePageSize(), 0)
+		}
+	case "pgup", "ctrl+u":
+		if m.focus == focusMessages {
+			m.messageScroll = min(m.messageScroll+m.messagePageSize(), m.maxMessageScroll())
+		}
+	case "g":
+		if m.focus == focusMessages {
+			m.messageScroll = m.maxMessageScroll()
+		}
+	case "G":
+		if m.focus == focusMessages {
+			m.messageScroll = 0
 		}
 	}
 	return m, nil
@@ -143,10 +164,19 @@ func (m Model) selectHighlightedChannel() (tea.Model, tea.Cmd) {
 	channel := m.filteredChannels[m.channelCursor]
 	m.selectedChannelID = channel.ID
 	m.messages = nil
+	m.messageScroll = 0
 	m.loadingMessages = true
 	m.hasError = false
 	m.status = "Loading #" + channel.Path + "…"
 	return m, loadMessages(m.service, channel.ID)
+}
+
+func (m Model) messagePageSize() int {
+	if m.height < minimumTerminalHeight {
+		return 1
+	}
+	_, _, bodyHeight := m.layoutDimensions()
+	return max(bodyHeight-6, 1)
 }
 
 func (m *Model) applyChannelFilter() {

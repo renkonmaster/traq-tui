@@ -36,6 +36,8 @@ type Model struct {
 
 	users    map[string]traqapi.User
 	messages []traqapi.Message
+	// messageScroll is the number of rendered lines above the latest view.
+	messageScroll int
 
 	filter textinput.Model
 
@@ -70,9 +72,4 @@ func New(service traqapi.Service, pollInterval time.Duration) Model {
 // Init loads the channel and user directories concurrently.
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(loadChannels(m.service), loadUsers(m.service))
-}
-
-// View is replaced by the complete responsive renderer in the rendering task.
-func (m Model) View() tea.View {
-	return tea.NewView("")
 }
