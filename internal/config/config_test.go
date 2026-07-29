@@ -10,8 +10,8 @@ import (
 func validEnvironment() map[string]string {
 	return map[string]string{
 		"TRAQ_API_BASE_URL":  "https://q.example.test/api/v3",
-		"TRAQ_CLIENT_ID":     "client-id",
-		"TRAQ_CLIENT_SECRET": "client-secret",
+		"TRAQ_CLIENT_ID":     "fake-client-id",
+		"TRAQ_CLIENT_SECRET": "fake-client-secret",
 		"TRAQ_REDIRECT_URL":  "http://127.0.0.1:18080/callback",
 	}
 }
@@ -34,10 +34,10 @@ func TestLoadValidConfiguration(t *testing.T) {
 	if got.APIBaseURL.String() != "https://q.example.test/api/v3" {
 		t.Fatalf("API base URL = %q", got.APIBaseURL)
 	}
-	if got.ClientID != "client-id" {
+	if got.ClientID != "fake-client-id" {
 		t.Fatalf("client ID = %q", got.ClientID)
 	}
-	if got.ClientSecret != "client-secret" {
+	if got.ClientSecret != "fake-client-secret" {
 		t.Fatalf("client secret was not loaded")
 	}
 	if got.RedirectURL.String() != "http://127.0.0.1:18080/callback" {

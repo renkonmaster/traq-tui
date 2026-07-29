@@ -46,11 +46,20 @@ func (s *fileTokenStore) Load(ctx context.Context) (*oauth2.Token, error) {
 	if err != nil {
 		return nil, fmt.Errorf("inspect token file: %w", err)
 	}
+	if err := validatePrivateTokenDirectory(filepath.Dir(s.path)); err != nil {
+		return nil, err
+	}
 	if info.Mode()&os.ModeSymlink != 0 {
 		return nil, errors.New("token file must not be a symbolic link")
 	}
 	if !info.Mode().IsRegular() {
 		return nil, errors.New("token file must be a regular file")
+	}
+	if permissions := info.Mode().Perm(); permissions != 0o600 {
+		return nil, fmt.Errorf(
+			"token file permissions must be 0600; got %04o",
+			permissions,
+		)
 	}
 
 	file, err := os.Open(s.path)
@@ -92,11 +101,8 @@ func (s *fileTokenStore) Save(ctx context.Context, token *oauth2.Token) error {
 	}
 
 	directory := filepath.Dir(s.path)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return fmt.Errorf("create token directory: %w", err)
-	}
-	if err := os.Chmod(directory, 0o700); err != nil {
-		return fmt.Errorf("secure token directory: %w", err)
+	if err := ensurePrivateTokenDirectory(directory); err != nil {
+		return err
 	}
 
 	if info, err := os.Lstat(s.path); err == nil {
@@ -151,11 +157,80 @@ func (s *fileTokenStore) Save(ctx context.Context, token *oauth2.Token) error {
 	return nil
 }
 
+func ensurePrivateTokenDirectory(directory string) error {
+	return checkPrivateTokenDirectory(directory, true)
+}
+
+func validatePrivateTokenDirectory(directory string) error {
+	return checkPrivateTokenDirectory(directory, false)
+}
+
+func checkPrivateTokenDirectory(directory string, create bool) error {
+	directory = filepath.Clean(directory)
+	if err := checkDirectoryPath(directory, create); err != nil {
+		return err
+	}
+	info, err := os.Lstat(directory)
+	if err != nil {
+		return fmt.Errorf("inspect token directory: %w", err)
+	}
+	if permissions := info.Mode().Perm(); permissions != 0o700 {
+		return fmt.Errorf(
+			"token directory permissions must be 0700; got %04o",
+			permissions,
+		)
+	}
+	return nil
+}
+
+func checkDirectoryPath(directory string, create bool) error {
+	parent := filepath.Dir(directory)
+	if parent != directory {
+		if err := checkDirectoryPath(parent, create); err != nil {
+			return err
+		}
+	}
+
+	info, err := os.Lstat(directory)
+	if create && errors.Is(err, os.ErrNotExist) {
+		if err := os.Mkdir(directory, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("create token directory: %w", err)
+		}
+		info, err = os.Lstat(directory)
+	}
+	if err != nil {
+		return fmt.Errorf("inspect token directory path: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("token directory path must not contain a symbolic link")
+	}
+	if !info.IsDir() {
+		return errors.New("token directory path must contain only directories")
+	}
+	return nil
+}
+
 func (s *fileTokenStore) Delete(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := os.Remove(s.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	info, err := os.Lstat(s.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect token file: %w", err)
+	}
+	if err := validatePrivateTokenDirectory(filepath.Dir(s.path)); err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("token file must not be a symbolic link")
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("token file must be a regular file")
+	}
+	if err := os.Remove(s.path); err != nil {
 		return fmt.Errorf("delete token file: %w", err)
 	}
 	return nil

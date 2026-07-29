@@ -463,9 +463,9 @@ func TestTokenComparisonIncludesAllOAuthFields(t *testing.T) {
 		Expiry:       time.Unix(100, 0),
 	}
 	tests := []*oauth2.Token{
-		{AccessToken: "changed", TokenType: base.TokenType, RefreshToken: base.RefreshToken, Expiry: base.Expiry},
+		{AccessToken: "fake-changed", TokenType: base.TokenType, RefreshToken: base.RefreshToken, Expiry: base.Expiry},
 		{AccessToken: base.AccessToken, TokenType: "MAC", RefreshToken: base.RefreshToken, Expiry: base.Expiry},
-		{AccessToken: base.AccessToken, TokenType: base.TokenType, RefreshToken: "changed", Expiry: base.Expiry},
+		{AccessToken: base.AccessToken, TokenType: base.TokenType, RefreshToken: "fake-changed", Expiry: base.Expiry},
 		{AccessToken: base.AccessToken, TokenType: base.TokenType, RefreshToken: base.RefreshToken, Expiry: time.Unix(200, 0)},
 	}
 	for index, changed := range tests {

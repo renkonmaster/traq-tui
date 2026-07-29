@@ -62,8 +62,115 @@ func TestFileTokenStoreRoundTripUsesPrivatePermissions(t *testing.T) {
 	}
 }
 
+func TestFileTokenStoreDoesNotChangeExistingParentPermissions(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "shared")
+	if err := os.Mkdir(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(parent, "token.json")
+	store := NewFileTokenStore(path)
+
+	err := store.Save(context.Background(), &oauth2.Token{AccessToken: "fake-token"})
+	if err == nil || !strings.Contains(err.Error(), "permissions") {
+		t.Fatalf("Save error = %v, want private-directory permission error", err)
+	}
+
+	info, statErr := os.Stat(parent)
+	if statErr != nil {
+		t.Fatal(statErr)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("parent mode was changed to %o", got)
+	}
+	if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("token was written despite unsafe directory: %v", statErr)
+	}
+}
+
+func TestFileTokenStoreRejectsSymlinkInParentPath(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "linked")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(link, "token.json")
+	store := NewFileTokenStore(path)
+
+	err := store.Save(context.Background(), &oauth2.Token{AccessToken: "fake-token"})
+	if err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("Save error = %v, want parent symlink rejection", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(target, "token.json")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("token was written through parent symlink: %v", statErr)
+	}
+}
+
+func TestFileTokenStoreLoadRejectsSymlinkInParentPath(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(target, "token.json"),
+		[]byte(`{"access_token":"fake-attacker-token"}`),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "linked")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	store := NewFileTokenStore(filepath.Join(link, "token.json"))
+
+	_, err := store.Load(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("Load error = %v, want parent symlink rejection", err)
+	}
+}
+
+func TestFileTokenStoreDeleteRejectsSymlinkInParentPath(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	targetToken := filepath.Join(target, "token.json")
+	if err := os.WriteFile(
+		targetToken,
+		[]byte(`{"access_token":"fake-target-token"}`),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "linked")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	store := NewFileTokenStore(filepath.Join(link, "token.json"))
+
+	err := store.Delete(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("Delete error = %v, want parent symlink rejection", err)
+	}
+	if _, statErr := os.Stat(targetToken); statErr != nil {
+		t.Fatalf("Delete removed target through parent symlink: %v", statErr)
+	}
+}
+
 func TestFileTokenStoreAtomicallyReplacesExistingToken(t *testing.T) {
 	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(directory, "token.json")
 	store := NewFileTokenStore(path)
 
@@ -104,6 +211,30 @@ func TestFileTokenStoreRejectsCorruptJSON(t *testing.T) {
 	}
 	if errors.Is(err, ErrTokenNotFound) {
 		t.Fatalf("corrupt file reported as missing: %v", err)
+	}
+}
+
+func TestFileTokenStoreLoadRejectsPublicFilePermissions(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "private")
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "token.json")
+	if err := os.WriteFile(
+		path,
+		[]byte(`{"access_token":"fake-exposed-token"}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := NewFileTokenStore(path)
+
+	_, err := store.Load(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "permissions") {
+		t.Fatalf("Load error = %v, want private-file permission error", err)
 	}
 }
 

@@ -66,8 +66,8 @@ default workspace-relative token file, and a user-provided token path.
 func TestLoadValid(t *testing.T) {
     env := map[string]string{
         "TRAQ_API_BASE_URL": "https://q.example.test/api/v3",
-        "TRAQ_CLIENT_ID": "client-id",
-        "TRAQ_CLIENT_SECRET": "client-secret",
+        "TRAQ_CLIENT_ID": "fake-client-id",
+        "TRAQ_CLIENT_SECRET": "fake-client-secret",
         "TRAQ_REDIRECT_URL": "http://127.0.0.1:18080/callback",
     }
     got, err := Load(func(k string) string { return env[k] }, "/work/traq-tui")
@@ -171,7 +171,7 @@ returns nil when the file is already absent.
 func TestFileTokenStorePermissions(t *testing.T) {
     path := filepath.Join(t.TempDir(), "private", "token.json")
     store := NewFileTokenStore(path)
-    if err := store.Save(context.Background(), &oauth2.Token{AccessToken: "test-token"}); err != nil { t.Fatal(err) }
+    if err := store.Save(context.Background(), &oauth2.Token{AccessToken: "fake-test-token"}); err != nil { t.Fatal(err) }
     info, err := os.Stat(path)
     if err != nil { t.Fatal(err) }
     if info.Mode().Perm() != 0o600 { t.Fatalf("mode = %o", info.Mode().Perm()) }
@@ -323,14 +323,14 @@ func TestServiceMessagesMapsAndOrders(t *testing.T) {
     server := newTraQTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         if r.URL.Path != "/channels/channel-1/messages" { http.NotFound(w, r); return }
         if r.URL.Query().Get("limit") != "50" { t.Errorf("limit = %q", r.URL.Query().Get("limit")) }
-        if r.Header.Get("Authorization") != "Bearer access-token" { t.Errorf("authorization header missing") }
+        if r.Header.Get("Authorization") != "Bearer fake-access-token" { t.Errorf("authorization header missing") }
         w.Header().Set("Content-Type", "application/json")
         io.WriteString(w, `[
           {"id":"new","userId":"user-1","channelId":"channel-1","content":"second","createdAt":"2026-07-29T01:01:00Z","updatedAt":"2026-07-29T01:01:00Z","pinned":false,"stamps":[],"threadId":null},
           {"id":"old","userId":"user-1","channelId":"channel-1","content":"first","createdAt":"2026-07-29T01:00:00Z","updatedAt":"2026-07-29T01:00:00Z","pinned":false,"stamps":[],"threadId":null}
         ]`)
     }))
-    service, err := NewService(server.URL, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "access-token"}))
+    service, err := NewService(server.URL, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "fake-access-token"}))
     if err != nil { t.Fatal(err) }
     messages, err := service.Messages(context.Background(), "channel-1", 50)
     if err != nil { t.Fatal(err) }
