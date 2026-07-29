@@ -1,2 +1,4 @@
+github.com/traPtitech/go-traq-oauth2 v1.0.0 h1:pEC4OmLEeKosD7BQ+ZRLn4O6QW8udJKV0r1Wm9hNQJ8=
+github.com/traPtitech/go-traq-oauth2 v1.0.0/go.mod h1:04X9SDHueEW2Yoa6QUHC691TrIYCtaWjSIBRFI3dc/U=
 golang.org/x/oauth2 v0.36.0 h1:peZ/1z27fi9hUOFCAZaHyrpWG5lwe0RJEEEeH0ThlIs=
 golang.org/x/oauth2 v0.36.0/go.mod h1:YDBUJMTkDnJS+A4BP4eZBjCqtokkg1hODuPjwiGPO7Q=
